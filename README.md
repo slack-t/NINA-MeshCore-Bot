@@ -61,6 +61,8 @@ Der Bot wird komplett über Umgebungsvariablen konfiguriert. Alles ist optional 
 | `SEVERITY_MIN_DEFAULT` | `Unknown` | Mindest-Schweregrad für alle übrigen Meldungen |
 | `POLL_INTERVAL` | `180` | Abstand zwischen zwei Abfragen der NINA-API in Sekunden |
 | `STATE_FILE` | `nina_state.json` | Pfad zur Datei, in der bekannte Warnungen gespeichert werden |
+| `ANNOUNCE_STARTUP` | `1` | Bei `1` sendet der Bot nach dem Start einmalig eine Statusmeldung in jeden konfigurierten Kanal |
+| `STARTUP_MESSAGE` | `NINA Warnbot aktiv` | Text der Startmeldung |
 
 **Schweregrade** (`SEVERITY_MIN_*`), von niedrig nach hoch: `Unknown` < `Minor` < `Moderate` < `Severe` < `Extreme`. Meldungen unterhalb des eingestellten Minimums werden verworfen. Der Standardwert für DWD (`Moderate`) filtert z. B. harmlose Windböen oder leichten Frost heraus, die sonst mehrmals täglich Meldungen erzeugen würden.
 

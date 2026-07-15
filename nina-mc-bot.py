@@ -61,6 +61,12 @@ ROUTES = {
 POLL_INTERVAL = int(os.getenv("POLL_INTERVAL", "180"))
 STATE_FILE = Path(os.getenv("STATE_FILE", "nina_state.json"))
 
+# Startmeldung: einmalig nach erfolgreicher Verbindung in jeden konfigurierten
+# Kanal senden, damit sichtbar ist, dass der Bot laeuft (z. B. nach Neustart
+# des Diensts).
+ANNOUNCE_STARTUP = os.getenv("ANNOUNCE_STARTUP", "1") == "1"
+STARTUP_MESSAGE = os.getenv("STARTUP_MESSAGE", "NINA Warnbot aktiv")
+
 SEVERITY_ORDER = ["Unknown", "Minor", "Moderate", "Severe", "Extreme"]
 
 MAX_CHARS = 130          # pro MeshCore-Paket, konservativ
@@ -270,6 +276,18 @@ async def send_channel(mc: MeshCore | None, route: dict, text: str) -> bool:
     return True
 
 
+async def announce_startup(mc: MeshCore | None) -> None:
+    """Startmeldung einmalig in jeden konfigurierten Kanal senden."""
+    sent_idx = set()
+    for route in ROUTES.values():
+        if route["idx"] in sent_idx:
+            continue
+        sent_idx.add(route["idx"])
+        await send_channel(mc, route, STARTUP_MESSAGE)
+        if not DRY_RUN:
+            await asyncio.sleep(SEND_GAP)
+
+
 # ---------------------------------------------------------------- Hauptschleife
 
 
@@ -335,6 +353,9 @@ async def main():
         log.info("Mit Node verbunden (%s: %s)", CONN_TYPE, CONN_TARGET)
 
     await resolve_routes(mc)
+
+    if ANNOUNCE_STARTUP:
+        await announce_startup(mc)
 
     async with httpx.AsyncClient(
         headers={"User-Agent": "nina-meshcore-bot/1.1"}
