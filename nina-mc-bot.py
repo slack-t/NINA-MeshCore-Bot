@@ -228,6 +228,29 @@ async def connect() -> MeshCore | None:
     raise ValueError(f"Unbekannter MC_CONN: {CONN_TYPE}")
 
 
+MAX_CHANNEL_SLOTS = 8    # Companion-Protokoll: Kanal-Index 0-7
+
+
+async def scan_channels(mc: MeshCore) -> dict[str, int]:
+    """Belegte Kanal-Slots einlesen -> {name_lowercase_ohne_raute: idx}.
+
+    Die meshcore-Lib hat kein get_channels() - das ist ein Komfort-Kommando
+    von meshcore-cli, das intern ueber die Slots loopt. Also selbst loopen.
+    """
+    found = {}
+    for idx in range(MAX_CHANNEL_SLOTS):
+        res = await mc.commands.get_channel(idx)
+        if res.type == EventType.ERROR:
+            break  # Slot existiert nicht -> fertig
+        name = (res.payload.get("channel_name") or "").strip()
+        secret = res.payload.get("channel_secret") or b""
+        if not name or not any(secret):
+            continue  # leerer Slot: kein Name, Secret komplett 0x00
+        found[name.lstrip("#").lower()] = idx
+        log.debug("Slot %d: %s", idx, name)
+    return found
+
+
 async def resolve_routes(mc: MeshCore | None) -> None:
     """Fuer jede Route den Kanal-Index ermitteln und in ROUTES eintragen."""
     if DRY_RUN:
@@ -244,24 +267,19 @@ async def resolve_routes(mc: MeshCore | None) -> None:
             continue
 
         if channels is None:
-            res = await mc.commands.get_channels()
-            if res.type == EventType.ERROR:
-                raise RuntimeError(f"get_channels fehlgeschlagen: {res.payload}")
-            channels = res.payload
+            channels = await scan_channels(mc)
+            log.info("Kanaele auf dem Node: %s", channels or "(keine)")
 
         want = route["channel"].lstrip("#").lower()
-        for ch in channels:
-            name = (ch.get("channel_name") or ch.get("name") or "").lstrip("#").lower()
-            if name == want:
-                route["idx"] = int(ch.get("channel_idx", ch.get("idx")))
-                log.info("%-4s -> %s (idx %d)", key, route["channel"], route["idx"])
-                break
-        else:
+        if want not in channels:
             raise RuntimeError(
                 f"Kanal {route['channel']} nicht auf dem Node. Anlegen mit:\n"
-                f"  KEY=$(printf '%%s' '{route['channel']}' | sha256sum | cut -c1-32)\n"
-                f"  meshcli -s {CONN_TARGET} set_channel <slot> '{route['channel']}' \"$KEY\""
+                f"  KEY=$(printf '%s' '{route['channel']}' | sha256sum | cut -c1-32)\n"
+                f"  meshcli -s {CONN_TARGET} set_channel <slot> '{route['channel']}' \"$KEY\"\n"
+                f"Gefunden wurden: {channels or '(keine)'}"
             )
+        route["idx"] = channels[want]
+        log.info("%-4s -> %s (idx %d)", key, route["channel"], route["idx"])
 
 
 async def send_channel(mc: MeshCore | None, route: dict, text: str) -> bool:
@@ -278,11 +296,12 @@ async def send_channel(mc: MeshCore | None, route: dict, text: str) -> bool:
 
 async def announce_startup(mc: MeshCore | None) -> None:
     """Startmeldung einmalig in jeden konfigurierten Kanal senden."""
-    sent_idx = set()
+    sent = set()
     for route in ROUTES.values():
-        if route["idx"] in sent_idx:
+        key = route["channel"] if DRY_RUN else route["idx"]
+        if key in sent:
             continue
-        sent_idx.add(route["idx"])
+        sent.add(key)
         await send_channel(mc, route, STARTUP_MESSAGE)
         if not DRY_RUN:
             await asyncio.sleep(SEND_GAP)
